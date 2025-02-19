@@ -153,7 +153,6 @@ class HISSDLearner:
 
     def reset_last_batch(self):
         self.last_task = ""
-        # self.last_batch = th.tensor(0.)
         self.last_batch = {}
 
     def update_last_batch(self, cur_task, cur_batch):
@@ -164,9 +163,6 @@ class HISSDLearner:
         else:
             self.last_batch[cur_task] = cur_batch
         self.last_task = cur_task
-        # if cur_task != self.last_task:
-        #     self.last_batch = cur_batch
-        #     self.last_task = cur_task
 
     def compute_neg_sample(self, batch, task):
         target_outs = []
@@ -203,10 +199,8 @@ class HISSDLearner:
         dec_loss = 0.0
         b, t, n = actions.shape[0], actions.shape[1], actions.shape[2]
         self.mac.init_hidden(batch.batch_size, task)
-        # self.target_mac.init_hidden(batch.batch_size, task)
         t = 0
         while t < batch.max_seq_length - self.c:
-            # for t in range(batch.max_seq_length - self.c):
             act_outs = []
             agent_outs, _ = self.mac.forward_planner(
                 batch, t=t, task=task, actions=actions[:, t], hrl=True
@@ -223,20 +217,12 @@ class HISSDLearner:
             dec_loss += (
                 F.cross_entropy(
                     act_outs.reshape(-1, a),
-                    # actions[:, t: t + self.c].squeeze(-1).reshape(-1),
-                    # reduction="sum") / mask[:, t:t + self.c].sum()
                     actions[:, t : t + self.c].squeeze(-1).reshape(-1),
                     reduction="sum",
                 )
                 / mask[:, t : t + self.c].sum()
             ) / n
             t += self.c
-            # cls_loss += (
-            # 	F.cross_entropy(
-            # 		cls_out.reshape(-1, self.main_args.cls_dim),
-            # 		task_label[:, t:t+self.c].squeeze(-1).reshape(-1),
-            # 		reduction="sum")) / n
-            # planner_loss += obs_loss
 
         if (
             len(self.last_batch) != 0
@@ -326,161 +312,18 @@ class HISSDLearner:
                 self.l2_loss(cur_outs, target_pos_outs.detach()).mean()
                 + self.l2_loss(target_cur_outs.detach(), pos_outs).mean()
             ) / 2
-            # t_len = cur_outs.shape[1]
 
         else:
             ssl_loss = th.tensor(0.0)
-        # t = batch.max_seq_length - 1
-        # agent_outs = self.mac.forward_global_hidden(batch, t=t, task=task, actions=actions[:, t])
-        # mac_value.append(agent_outs)
-        # mac_value = th.stack(mac_value, dim=1)
-
-        #### value net inference
-        # value_pre = []
-        # target_value_pre = []
-        # for t in range(batch.max_seq_length):
-        # 	value = self.mac.forward_value(batch, mac_value[t], t=t, task=task)
-        # 	value_pre.append(value)
-        # 	with th.no_grad():
-        # 		target_value = self.target_mac.forward_value(batch, mac_value[t], t=t, task=task)
-        # 		target_value_pre.append(target_value)
-        # value_pre = th.stack(value_pre, dim=1)
-        # target_value_pre = th.stack(target_value_pre, dim=1)
-        # rewards = rewards.reshape(-1, batch.max_seq_length, 1)
-
-        # if self.mixer is not None:
-        # 	mixed_values = self.mixer(value_pre, batch["state"][:, :],
-        # 							  self.task2decomposer[task])
-        # 	with th.no_grad():
-        # 		target_mixed_values = self.target_mixer(target_value_pre, batch["state"][:, :],
-        # 												self.task2decomposer[task])
-        # else:
-        # 	mixed_values = value_pre.sum(dim=2)
-        # 	target_mixed_values = target_value_pre.sum(dim=2)
-
-        # td_error = mixed_values[:, :-1] - rewards[:, :-1] - \
-        # 	self.main_args.gamma * (1 - terminated[:, self.c - 1:-1]) * target_mixed_values[:, 1:].detach()
-        # mask = mask.expand_as(mixed_values)
-        # masked_td_error = td_error * mask[:, :-1]
-        # v_loss = (masked_td_error ** 2).sum() / mask[:, :-1].sum()
-
-        # mac_out.append(act_out)
-        # mac_out = th.stack(mac_out, dim=1)  # Concat over time
-        # bs, t, n_agents, n_entity, -1
-
-        ######## beta-vae loss
-        # prior loss
-        # seq_skill_input = F.gumbel_softmax(mac_out[:, :-self.c, :, :], dim=-1)
-        # kl_seq_skill = seq_skill_input * (th.log(seq_skill_input) - math.log(1 / self.main_args.entity_embed_dim))
-        # enc_loss = kl_seq_skill.mean()
-
-        # dec_loss = 0.   ### batch time agent skill
-        # self.mac.init_hidden(batch.batch_size, task)
-        # self.target_mac.init_hidden(batch.batch_size, task)
-        # seq_own, seq_entity = [], []
-        # seq_pre_own, seq_pre_entity = [], []
-        # target_seq_own, target_seq_entity = [], []
-        # target_seq_pre_own, target_seq_pre_entity = [], []
-        # # seq_obs_input = []
-        # for t in range(batch.max_seq_length-self.c):
-        #     # seq_action_output = self.mac.forward_seq_action(batch, seq_skill_input[:, t, :, :], t, task=task)
-        #     mask_flag = False
-        #     p = random.random()
-        #     if p > self.main_args.random and self.main_args.mask:
-        #         mask_flag = True
-
-        #     seq_action_output = self.mac.forward_seq_action(batch, t, task=task, mask=mask_flag)
-        #     b, c, n, a = seq_action_output.size()
-        #     dec_loss += (
-        #         F.cross_entropy(
-        #             seq_action_output.reshape(-1, a),
-        #             # actions[:, t: t + self.c].squeeze(-1).reshape(-1),
-        #             # reduction="sum") / mask[:, t:t + self.c].sum()
-        #             actions[:, t:t+self.c].squeeze(-1).reshape(-1),
-        #             reduction="sum") / mask[:, t:t+self.c].sum()
-        #     ) / n
-
-        #     pre_own, pre_entity = self.mac.forward_model(batch, task, obs_input, actions[:, t:t+self.c])
-        #     own, entity = self.mac.feed_forward(batch, task, obs_input)
-        #     seq_own.append(own)
-        #     seq_entity.append(entity)
-        #     seq_pre_own.append(pre_own)
-        #     seq_pre_entity.append(pre_entity)
-        #
-        #     # rew_loss += (F.mse_loss(pre_rew.reshape(b, -1, 1).sum(dim=1), rewards[:, t:t+self.c].squeeze(-1).reshape(-1, 1))) / n
-        #
-        #     with th.no_grad():
-        #         _, target_obs_input = self.target_mac.forward_seq_action(batch, t, task=task)
-        #         target_pre_own, target_pre_entity = self.target_mac.forward_model(
-        #             batch, task, target_obs_input, actions[:, t:t+self.c])
-        #         target_own, target_entity = self.target_mac.feed_forward(batch, task, target_obs_input)
-        #
-        #         target_seq_own.append(target_own)
-        #         target_seq_entity.append(target_entity)
-        #         target_seq_pre_own.append(target_pre_own)
-        #         target_seq_pre_entity.append(target_pre_entity)
-        #
-        # assert self.c == 1
-        # seq_own, seq_entity, seq_pre_own, seq_pre_entity = th.cat(seq_own, dim=1), th.cat(
-        #     seq_entity, dim=1), th.cat(seq_pre_own, dim=1), th.cat(seq_pre_entity, dim=1)
-        # target_seq_own, target_seq_entity, target_seq_pre_own, target_seq_pre_entity = th.cat(
-        #     target_seq_own, dim=1), th.cat(target_seq_entity, dim=1), th.cat(
-        #     target_seq_pre_own, dim=1), th.cat(target_seq_pre_entity, dim=1)
-
-        # Calculate the Q-Values necessary for the target
-        # target_mac_out = []
-        # with th.no_grad():
-        #     target_seq_obs = []
-        #     self.target_mac.init_hidden(batch.batch_size, task)
-        #     for t in range(batch.max_seq_length-self.c):
-        #         _, target_obs_input = self.target_mac.forward_seq_action(batch, t, task=task)
-        #         target_seq_obs.append(target_obs_input)
-        #
-        #     assert self.c == 1
-        #     target_seq_obs = th.stack(target_seq_obs, dim=1).reshape(b*c*n, e, -1)
-        #     target_pre_own, target_pre_entity = self.target_mac.forward_model(
-        #         batch, task, target_seq_obs, seq_act.reshape(b*c*n, 1))
-        #     target_seq_obs = self.target_mac.feed_forward(target_seq_obs)
-
-        # sim_loss = self.contrastive_loss(seq_own[:, 1:], target_seq_pre_own[:, :-1].detach()).mean() + \
-        #     self.contrastive_loss(seq_pre_own[:, :-1], target_seq_own[:, 1:].detach()).mean() + \
-        #     self.contrastive_loss(seq_pre_entity[:, :-1], target_seq_entity[:, 1:].detach()).mean() + \
-        #     self.contrastive_loss(seq_entity[:, 1:], target_seq_pre_entity[:, :-1].detach()).mean()
-        # vae_loss = dec_loss / (batch.max_seq_length - self.c) + self.main_args.beta * enc_loss
+        
         vae_loss = dec_loss / (batch.max_seq_length - self.c)
-        # cls_loss = cls_loss / (batch.max_seq_length - self.c)
         loss = vae_loss
         if ssl_loss is not None:
             loss += self.beta * ssl_loss
-        # loss += self.main_args.coef_sim * (sim_loss)
 
-        # self.mac.agent.value.requires_grad_(False)
-        # self.mac.agent.planner.requires_grad_(False)
-        # self.optimiser.zero_grad()
         loss.backward()
-        # self.optimiser.step()
+
         return vae_loss, ssl_loss
-
-        # if (t_env - self.last_target_update_episode) / self.main_args.target_update_interval >= 1.0:
-        # 	self._update_targets()
-        # 	self.last_target_update_episode = t_env
-
-        # if t_env - self.task2train_info[task]["log_stats_t"] >= self.task2args[task].learner_log_interval:
-        # self.logger.log_stat(f"pretrain/{task}/grad_norm", grad_norm.item(), t_env)
-        # self.logger.log_stat(f"pretrain/{task}/dist_loss", dist_loss.item(), t_env)
-        # self.logger.log_stat(f"pretrain/{task}/enc_loss", enc_loss.item(), t_env)
-        # self.logger.log_stat(f"pretrain/{task}/dec_loss", dec_loss.item(), t_env)
-        # self.logger.log_stat(f"train/{task}/vae_loss", vae_loss.item(), t_env)
-        # self.logger.log_stat(f"train/{task}/cls_loss", cls_loss.item(), t_env)
-        # self.logger.log_stat(f"train/{task}/rew_loss", v_loss.item(), t_env)
-        # self.logger.log_stat(f"train/{task}/ensemble_loss", ensemble_loss.item(), t_env)
-        # self.logger.log_stat(f"train/{task}/ent_loss", ent_loss.item(), t_env)
-
-        # for i in range(self.skill_dim):
-        #     skill_dist = seq_skill_input.reshape(-1, self.skill_dim).mean(dim=0)
-        #     self.logger.log_stat(f"pretrain/{task}/skill_class{i+1}", skill_dist[i].item(), t_env)
-
-        # self.task2train_info[task]["log_stats_t"] = t_env
 
     def test_vae(self, batch: EpisodeBatch, t_env: int, episode_num: int, task: str):
         rewards = batch["reward"][:, :]
@@ -491,23 +334,11 @@ class HISSDLearner:
         avail_actions = batch["avail_actions"]
 
         # # Calculate estimated Q-Values
-        # mac_out = []
         self.mac.init_hidden(batch.batch_size, task)
-        # for t in range(batch.max_seq_length):
-        #     agent_outs = self.mac.forward_skill(batch, t=t, task=task, actions=actions[:, t, :])
-        #     mac_out.append(agent_outs)
-        # mac_out = th.stack(mac_out, dim=1)  # Concat over time
-
-        # ######## beta-vae loss
-        # # prior loss
-        # seq_skill_input = F.gumbel_softmax(mac_out[:, :-self.c, :, :], dim=-1)
-        # kl_seq_skill = seq_skill_input * (th.log(seq_skill_input) - math.log(1 / self.main_args.skill_dim))
-        # enc_loss = kl_seq_skill.mean()
 
         dec_loss = 0.0  ### batch time agent skill
         self.mac.init_hidden(batch.batch_size, task)
         for t in range(batch.max_seq_length - self.c):
-            # seq_action_output = self.mac.forward_seq_action(batch, seq_skill_input[:, t, :, :], t, task=task)
             seq_action_output = self.mac.forward_seq_action(batch, t, task=task)
             b, c, n, a = seq_action_output.size()
             dec_loss += (
@@ -519,18 +350,10 @@ class HISSDLearner:
                 / mask[:, t : t + self.c].sum()
             ) / n
 
-        # vae_loss = dec_loss / (batch.max_seq_length - self.c) + self.main_args.beta * enc_loss
         vae_loss = dec_loss / (batch.max_seq_length - self.c)
         loss = vae_loss
 
-        # self.logger.log_stat(f"pretrain/{task}/test_vae_loss", loss.item(), t_env)
-        # self.logger.log_stat(f"pretrain/{task}/test_enc_loss", enc_loss.item(), t_env)
-        # self.logger.log_stat(f"pretrain/{task}/test_dec_loss", dec_loss.item(), t_env)
         self.logger.log_stat(f"train/{task}/test_vae_loss", loss.item(), t_env)
-
-        # for i in range(self.skill_dim):
-        #     skill_dist = seq_skill_input.reshape(-1, self.skill_dim).mean(dim=0)
-        #     self.logger.log_stat(f"pretrain/{task}/test_skill_class{i+1}", skill_dist[i].item(), t_env)
 
     def train_value(self, batch: EpisodeBatch, t_env: int, episode_num: int, task: str):
         # Get the relevant quantities
@@ -539,38 +362,6 @@ class HISSDLearner:
         terminated = batch["terminated"][:, :].float()
         mask = batch["filled"][:, :].float()
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
-        # avail_actions = batch["avail_actions"]
-
-        # # if len(self.last_task) != 0:
-        # if self.last_task != '':
-        #     ssl_loss = 0.
-        #     target_outs = []
-        #     self.mac.init_hidden(batch.batch_size, task)
-        #     self.target_mac.init_hidden(batch.batch_size, task)
-        #
-        #     cur_random, last_random = random.randint(0, self.task2n_agents[task]-1), \
-        #         random.randint(0, self.task2n_agents[self.last_task]-1)
-        #     pos_random = random.randint(0, self.task2n_agents[task]-1)
-        #     while pos_random == cur_random:
-        #         pos_random = random.randint(0, self.task2n_agents[task]-1)
-        #     cur_t = random.randint(0, batch.max_seq_length-self.c-1)
-        #
-        #     mac_out, _ = self.mac.forward_discriminator(batch, t=cur_t, task=task)
-        #     cur_out, pos_out = mac_out[:, cur_random], mac_out[:, pos_random]
-        #     for t in range(self.last_batch.max_seq_length - self.c):
-        #         with th.no_grad():
-        #             target_mac_out, _ = self.target_mac.forward_discriminator(
-        #             self.last_batch, t=t, task=self.last_task)
-        #             target_mac_out = target_mac_out[:, last_random]
-        #         target_outs.append(target_mac_out)
-        #
-        #     target_outs = th.cat(target_outs, dim=1).reshape(-1, self.main_args.entity_embed_dim)
-        #
-        #     for _ in range(cur_out.shape[0]):
-        #         ssl_loss += self.contrastive_loss(cur_out, pos_out.detach(), target_outs.detach())
-        #     ssl_loss = ssl_loss / cur_out.shape[0]
-        # else:
-        #     ssl_loss = th.tensor(0.)
 
         #### value net inference
         values = []
@@ -578,14 +369,9 @@ class HISSDLearner:
         self.mac.init_hidden(batch.batch_size, task)
         self.target_mac.init_hidden(batch.batch_size, task)
         for t in range(batch.max_seq_length):
-            # out_h, _ = self.mac.forward_planner(batch, t=t, task=task, actions=actions[:, t])
-            # value_out_h = self.mac.forward_planner_feedforward(out_h, forward_type='value')
-            # value = self.mac.forward_value_skill(batch, value_out_h, task=task)
             value = self.mac.forward_value(batch, t=t, task=task)
             values.append(value)
             with th.no_grad():
-                # target_out_h, _ = self.target_mac.forward_planner(batch, t=t, task=task, actions=actions[:, t])
-                # target_value = self.target_mac.forward_value_skill(batch, target_out_h, task=task)
                 target_value = self.target_mac.forward_value(batch, t=t, task=task)
                 target_values.append(target_value)
 
@@ -633,13 +419,11 @@ class HISSDLearner:
                 / mask[:, : -self.c].sum()
             )
 
-        # loss = ssl_loss + value_loss
         loss = value_loss
 
         self.mac.agent.value.requires_grad_(True)
         loss.backward()
 
-        # return value_loss, ssl_loss
         return value_loss
         ####
 
@@ -660,29 +444,10 @@ class HISSDLearner:
         terminated = batch["terminated"][:, :].float()
         mask = batch["filled"][:, :].float()
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
-        # avail_actions = batch["avail_actions"]
-        # task2label = {
-        # 	3: 0,
-        # 	5: 1,
-        # 	9: 2,
-        # }
 
-        #### planner inference
-        # values = []
-        # values_next = []
-        # mac_out_own = []
-        # mac_out_enemy = []
-        # mac_out_ally = []
-        # mac_out_own_h = []
-        # mac_out_enemy_h = []
-        # mac_out_ally_h = []
         mac_value = []
-        # target_mac_value = []
-        # dec_loss = 0.
         planner_loss = 0.0
         b, t, n = actions.shape[0], actions.shape[1], actions.shape[2]
-        # task_label = th.tensor(task2label[n]).reshape(1, 1, 1, 1).repeat(b, t, n, 1).to(actions.device)
-        # cls_loss = 0.
 
         self.mac.init_hidden(batch.batch_size, task)
         self.target_mac.init_hidden(batch.batch_size, task)
@@ -699,24 +464,7 @@ class HISSDLearner:
                 out_h, forward_type="value"
             )
             mac_value.append(value_out_h)
-            # act_out, _ = self.mac.forward_global_action(batch, out_h, t, task)
-            # _, c, n, a = act_out.shape
-            # dec_loss += (
-            # 	F.cross_entropy(
-            # 		act_out.reshape(-1, a),
-            # 		# actions[:, t: t + self.c].squeeze(-1).reshape(-1),
-            # 		# reduction="sum") / mask[:, t:t + self.c].sum()
-            # 		actions[:, t:t+self.c].squeeze(-1).reshape(-1),
-            # 		reduction="sum") / mask[:, t:t+self.c].sum()) / n
-            # cls_loss += (
-            # 	F.cross_entropy(
-            # 		cls_out.reshape(-1, self.main_args.cls_dim),
-            # 		task_label[:, t:t+self.c].squeeze(-1).reshape(-1),
-            # 		reduction="sum")) / n
             planner_loss += obs_loss
-            # with th.no_grad():
-            # 	target_out = self.target_mac.forward_planner(batch, t=t, task=task)
-            # 	target_mac_value.append(target_out)
 
         t = batch.max_seq_length - self.c
         for i in range(self.c):
@@ -727,18 +475,12 @@ class HISSDLearner:
                 out_h, forward_type="value"
             )
             mac_value.append(value_out_h)
-        # mac_value = th.stack(mac_value, dim=1)
-        # with th.no_grad():
-        # 	target_out = self.mac.forward_planner(batch, t=t, task=task)
-        # 	target_mac_value.append(target_out)
-        # 	target_mac_value = th.stack(target_mac_value, dim=1)
 
         #### value net inference
         value_pre = []
         target_value_pre = []
         for t in range(batch.max_seq_length):
             value = self.mac.forward_value(batch, t=t, task=task)
-            # value = self.mac.forward_value_skill(batch, mac_value[t], task=task)
             with th.no_grad():
                 target_value = self.target_mac.forward_value_skill(
                     batch, mac_value[t], task=task
@@ -774,10 +516,6 @@ class HISSDLearner:
                 + cs_rewards[:, : -self.c]
                 - mixed_values[:, : -self.c]
             )
-            # self.main_args.gamma * (1 - terminated[:, self.c - 1:-1]) * mixed_values[:, 1:]
-
-            # dec_loss = dec_loss / (batch.max_seq_length - self.c)
-            # cls_loss = cls_loss / (batch.max_seq_length - self.c)
             planner_loss = planner_loss / (batch.max_seq_length - self.c)
             mask = mask.expand_as(mixed_values)
             td_error = (td_error * mask[:, : -self.c]).sum() / mask[:, : -self.c].sum()
@@ -785,132 +523,8 @@ class HISSDLearner:
             weight = th.clamp_max(weight, 100.0).detach()
             loss = weight * planner_loss
 
-        # masked_td_error = td_error * mask[:, :-1]
-        # v_loss = (masked_td_error ** 2).sum() / mask[:, :-1].sum()
-
-        # value = self.mac.forward_value(batch, t=t, task=task)
-        # value_next = self.mac.forward_value(out_h, t=t, task=task, forward_hidden=True)
-        # values.append(value)
-        # values_next.append(value_next)
-
-        # vae_loss += out_loss
-
-        #     mac_out_own.append(out[0])
-        #     mac_out_enemy.append(out[1])
-        #     mac_out_ally.append(out[2])
-        #
-        #     mac_out_own_h.append(out_h[0])
-        #     mac_out_enemy_h.append(out_h[1])
-        #     mac_out_ally_h.append(out_h[2])
-        #
-        # mac_out_own = th.stack(mac_out_own, dim=1)  # Concat over time
-        # mac_out_enemy = th.stack(mac_out_enemy, dim=1)
-        # mac_out_ally = th.stack(mac_out_ally, dim=1)
-        # mac_out_own_h = th.stack(mac_out_own_h, dim=1)
-        # mac_out_enemy_h = th.stack(mac_out_enemy_h, dim=1)
-        # mac_out_ally_h = th.stack(mac_out_ally_h, dim=1)
-
-        # values = th.stack(values, dim=1)
-        # values_next = th.stack(values_next, dim=1)
-
-        # if self.mixer is not None:
-        # 	mixed_values = self.mixer(values, batch["state"][:, :],
-        # 							  self.task2decomposer[task])
-        # 	mixed_values_next = self.target_mixer(values_next, batch["state"][:, :],
-        # 										  self.task2decomposer[task])
-        # else:
-        # 	mixed_values = values.sum(dim=2)
-        # 	mixed_values_next = values_next.sum(dim=2)
-
-        # td_error = mixed_values[:, :-1] - rewards[:, :-1] - \
-        # 	self.main_args.gamma * (1 - terminated[:, self.c - 1:-1]) * mixed_values_next[:, 1:]
-
-        # vae_loss = vae_loss / (batch.max_seq_length)
-        # loss = th.exp(-td_error).mean() * vae_loss
-
-        # bs, t_len, n_agents, _, _ = mac_out_own.shape
-        # dist_loss = F.cross_entropy(mac_out_obs.reshape(-1, self.skill_dim),
-        #                             actions.reshape(-1), reduction="sum") / mask.sum() / n_agents
-        #
-        # # Pick the Q-Values for the actions taken by each agent
-        # chosen_action_qvals = th.gather(mac_out[:, :], dim=3, index=actions[:, :]).squeeze(3)  # Remove the last dim
-        #
-        # # Calculate the Q-Values necessary for the target
-        # target_mac_out = []
-        # self.target_mac.init_hidden(batch.batch_size, task)
-        # for t in range(batch.max_seq_length):
-        #     target_agent_outs = self.target_mac.forward_qvalue(batch, t=t, task=task)
-        #     target_mac_out.append(target_agent_outs)
-        #
-        # # We don't need the first timesteps Q-Value estimate for calculating targets
-        # target_mac_out = th.stack(target_mac_out, dim=1)  # Concat across time
-        #
-        # # Mask out unavailable actions
-        # # target_mac_out[avail_actions[:, self.c:] == 0] = -9999999
-        #
-        # # Max over target Q-Values
-        # if self.main_args.double_q:
-        #     # Get actions that maximise live Q (for double q-learning)
-        #     mac_out_detach = mac_out.clone().detach()
-        #     # mac_out_detach[avail_actions == 0] = -9999999
-        #     cur_max_actions = mac_out_detach[:, :].max(dim=3, keepdim=True)[1]
-        #     target_max_qvals = th.gather(target_mac_out, 3, cur_max_actions).squeeze(3)
-        #
-        #     cons_max_qvals = th.gather(mac_out, 3, cur_max_actions).squeeze(3)
-        #     # cons_error = (cons_max_qvals - chosen_action_qvals).mean(dim=-1, keepdim=True)
-        # else:
-        #     target_max_qvals = target_mac_out.max(dim=3)[0]
-        #     cons_error = None
-        #
-        # # Mix
-        # bs, seq_len = chosen_action_qvals.size(0), chosen_action_qvals.size(1)
-        # # task_repre = self.mac.get_task_repres(task, require_grad=False)[None, None, ...].repeat(bs, seq_len, 1, 1)
-        # # task_repre = self.mac.sample_task_repres(task, require_grad=False, shape=(bs, seq_len)).to(chosen_action_qvals.device)
-        # if self.mixer is not None:
-        #     chosen_action_qvals = self.mixer(chosen_action_qvals, batch["state"][:, :],
-        #                                      self.task2decomposer[task])
-        #     target_max_qvals = self.target_mixer(target_max_qvals, batch["state"][:, :],
-        #                                          self.task2decomposer[task])
-        #
-        #     cons_max_qvals = self.mixer(cons_max_qvals, batch["state"][:, :],
-        #                                 self.task2decomposer[task])
-        #
-        # # Calculate c-step Q-Learning targets
-        # cs_rewards = batch["reward"]
-        # for i in range(1, self.c):
-        #     cs_rewards[:, :-self.c] += rewards[:, i:-(self.c - i)]
-        # # cs_rewards /= self.c
-        #
-        # targets = cs_rewards[:, :-self.c] + self.main_args.gamma * (1 - terminated[:, self.c - 1:-1]) * target_max_qvals[:, self.c:]
-        #
-        # # Td-error
-        # td_error = (chosen_action_qvals[:, :-self.c] - targets.detach())
-        #
-        # # # Cons-error
-        # cons_error = (cons_max_qvals - chosen_action_qvals)
-        #
-        # mask = mask[:, :].expand_as(cons_error)
-        #
-        # # 0-out the targets that came from padded data
-        # masked_td_error = td_error * mask[:, :-self.c]
-        # masked_cons_error = cons_error * mask
-        #
-        # # Normal L2 loss, take mean over actual data
-        # td_loss = (masked_td_error ** 2).sum() / mask[:, :-self.c].sum()
-        # cons_loss = masked_cons_error.sum() / mask.sum()
-        # loss = td_loss + self.alpha * cons_loss + self.phi * dist_loss
-        # loss = v_loss + dec_loss / (batch.max_seq_length - self.c)
-
-        # Do RL Learning
-        # self.mac.agent.state_encoder.requires_grad_(False)
-        # self.mac.agent.decoder.requires_grad_(False)
         self.mac.agent.value.requires_grad_(False)
-        # self.optimiser.zero_grad()
         loss.backward()
-        # self.mac.agent.value.requires_grad_(True)
-
-        # grad_norm = th.nn.utils.clip_grad_norm_(self.params, self.main_args.grad_norm_clip)
-        # self.optimiser.step()
 
         # episode_num should be pulic
         if (
@@ -924,19 +538,9 @@ class HISSDLearner:
             >= self.task2args[task].learner_log_interval
         ):
             self.logger.log_stat(f"{task}/dec_loss", dec_loss.item(), t_env)
-            # self.logger.log_stat(f"{task}/td_error", td_error.item(), t_env)
             self.logger.log_stat(f"{task}/value_loss", v_loss.item(), t_env)
             self.logger.log_stat(f"{task}/plan_loss", planner_loss.item(), t_env)
-            # self.logger.log_stat(f"{task}/class_loss", cls_loss.item(), t_env)
             self.logger.log_stat(f"{task}/ssl_loss", ssl_loss.item(), t_env)
-            # self.logger.log_stat(f"{task}/grad_norm", grad_norm.item(), t_env)
-            # mask_elems = mask.sum().item()
-            # self.logger.log_stat(f"{task}/td_error_abs", (masked_td_error.abs().sum().item() / mask_elems), t_env)
-            # self.logger.log_stat(f"{task}/q_taken_mean", (chosen_action_qvals * mask).sum().item() / (
-            #     mask_elems * self.task2args[task].n_agents), t_env)
-            # self.logger.log_stat(f"{task}/target_mean",
-            #                      (targets * mask[:, :-self.c]).sum().item() / (mask_elems * self.task2args[task].n_agents), t_env)
-            # self.task2train_info[task]["log_stats_t"] = t_env
 
     def train_ssl(self, batch: EpisodeBatch, t_env: int, episode_num: int, task: str):
         # Get the relevant quantities
@@ -947,7 +551,6 @@ class HISSDLearner:
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
 
         ssl_loss = 0.0
-        # mac_outs, mac_outs_h = [], []
         target_outs, target_outs_h = [], []
         self.mac.init_hidden(batch.batch_size, task)
         self.target_mac.init_hidden(batch.batch_size, task)
@@ -970,27 +573,9 @@ class HISSDLearner:
                 target_mac_out = target_mac_out[:, last_random]
             target_outs.append(target_mac_out)
 
-        # for t in range(batch.max_seq_length - self.c):
-        #     mac_out, mac_out_h = self.mac.forward_discriminator(batch, t=t, task=task)
-        #     n = mac_out.shape[1]
-        # for t in range(self.last_batch.max_seq_length - self.c):
-        #     with th.no_grad():
-        #         target_out, target_out_h = self.target_mac.forward_discriminator(
-        # self.last_batch, t=t, task=task)
-
-        #         mac_out, mac_out_h, target_out, target_out_h = mac_out.reshape(-1, self.main_args.entity_embed_dim), \
-        #    mac_out_h.reshape(-1, self.main_args.entity_embed_dim), target_out.reshape(-1, self.main_args.entity_embed_dim), \
-        #        target_out_h.reshape(-1, self.main_args.entity_embed_dim)
-
-        # mac_outs.append(mac_out)
-        # mac_outs_h.append(mac_out_h)
-        # target_outs.append(target_out)
-        # target_outs_h.append(target_out_h)
-
         target_outs = th.cat(target_outs, dim=1).reshape(
             -1, self.main_args.entity_embed_dim
         )
-        # target_outs_h = th.stack(target_outs_h, dim=1)
 
         for _ in range(cur_out.shape[0]):
             ssl_loss += self.contrastive_loss(
@@ -998,9 +583,6 @@ class HISSDLearner:
             )
         ssl_loss = ssl_loss / cur_out.shape[0]
 
-        #     ssl_loss += self.contrastive_loss(mac_outs, target_outs_h.detach()).sum() + \
-        #    self.contrastive_loss(mac_outs_h, target_outs.detach()).sum()
-        #     ssl_loss = ssl_loss / (mask.sum() * n)
         ssl_loss.backward()
 
         return ssl_loss
@@ -1015,8 +597,6 @@ class HISSDLearner:
                 )
 
         self.train_vae(batch, t_env, episode_num, task)
-        # v_loss = self.train_value(batch, t_env, episode_num, task)
-        # self.train_planner(batch, t_env, episode_num, task, v_loss)
         self.pretrain_steps += 1
 
     def test_pretrain(
@@ -1034,12 +614,6 @@ class HISSDLearner:
                     -task_args.learner_log_interval - 1
                 )
 
-        # self.train_policy(batch, t_env, episode_num, task)
-        # if self.last_task != '':
-        #     ssl_loss = self.train_ssl(batch, t_env, episode_num, task)
-        #     self.update(pretrain=False)
-        # else:
-        #     ssl_loss = th.tensor(0.)
         if self.adaptation:
             v_loss = self.train_value(batch, t_env, episode_num, task)
             self.train_planner(

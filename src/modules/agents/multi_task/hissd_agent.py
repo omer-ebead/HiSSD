@@ -11,35 +11,6 @@ from utils.transformer import Transformer
 from .vq_skill import SkillModule, MLPNet
 
 
-class Eval:
-    def __init__(self):
-        super(Eval, self).__init__()
-        self.last_task = ''
-        self.coordination = {}
-        self.specific = {}
-        self.max_len = {}
-
-    def get_last_task(self):
-        return self.last_task
-
-    def get_data(self):
-        return self.coordination, self.specific, self.max_len
-
-    def reset_all(self):
-        self.last_task = ''
-        self.coordination = {}
-        self.specific = {}
-        self.max_len = {}
-
-    def write_task(self, task):
-        self.last_task = task
-
-    def write_data(self, coordination, specific, max_len):
-        self.coordination[self.last_task] = coordination
-        self.specific[self.last_task] = specific
-        self.max_len[self.last_task] = max_len
-
-
 class HISSDAgent(nn.Module):
     """  sotax agent for multi-task learning """
 
@@ -55,11 +26,8 @@ class HISSDAgent(nn.Module):
         self.skill_dim = args.skill_dim
 
         self.q = Qnet(args)
-        # self.state_encoder = StateEncoder(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
-        # self.obs_encoder = ObsEncoder(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
         self.value = ValueNet(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
         self.encoder = Encoder(args)
-        # self.decoder = BasicDecoder(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
         self.decoder = Decoder(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
         self.planner = PlannerModel(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
         self.discr = Discriminator(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
@@ -67,16 +35,10 @@ class HISSDAgent(nn.Module):
         self.last_out_h = None
         self.last_h_plan = None
 
-        if self.args.evaluate:
-            self.tSNE_data = Eval()
-            self.task_count = 0
         self.coordination = []
         self.specific = []
         self.c_tmp, self.s_tmp = [], []
         self.saved = False
-        max_len = 0
-        self.adaptation = args.adaptation
-        self.noise_weight = args.noise_weight
 
     def init_hidden(self):
         # make hidden states on the same device as model
@@ -87,8 +49,6 @@ class HISSDAgent(nn.Module):
 
     def forward_seq_action(self, seq_inputs, hidden_state_dec, hidden_state_plan, task, mask=False, t=0, actions=None):
         seq_act = []
-        # seq_obs = []
-        # hidden_state = None
         for i in range(self.c):
             act, hidden_state_dec, hidden_state_plan = self.forward_action(
                 seq_inputs[:, i, :], hidden_state_dec, hidden_state_plan, task,  mask, t, actions[:, i])
@@ -96,34 +56,21 @@ class HISSDAgent(nn.Module):
                 hidden_state = hidden_state_dec
                 h_plan = hidden_state_plan
             seq_act.append(act)
-            # seq_obs.append(obs)
         seq_act = th.stack(seq_act, dim=1)
-        # seq_obs = th.stack(seq_obs, dim=1)
 
         return seq_act, hidden_state, h_plan
-
-    # def forward_global_hidden(self, inputs, task, hidden_state_enc=None, actions=None):
-    #     total_hidden, h_enc = self.state_encoder(inputs, hidden_state_enc, task, actions=actions)
-    #     return total_hidden, h_enc
 
     def forward_action(self, inputs, emb_inputs, discr_h, hidden_state_dec, hidden_state_plan, task,
                        mask=False, t=0, actions=None):
         h_plan = hidden_state_plan
         act, h_dec, cls_out = self.decoder(emb_inputs, inputs, discr_h, hidden_state_dec, task, mask, actions)
-        # _, out_h, h_plan = self.forward_planner(inputs, hidden_state_plan, t, task)
-        # pre_own, pre_enemy, pre_ally = out_h
-        # pre_state = th.cat([pre_own.unsqueeze(1), pre_enemy, pre_ally], dim=1)
-        # act, h_dec = self.decoder(inputs, hidden_state_dec, pre_state, task, mask, actions)
         return act, h_dec, h_plan, cls_out
 
     def forward_value(self, inputs, hidden_state_value, task, actions=None):
-        # hidden_state_value = hidden_state_value.reshape(-1, 1, self.args.entity_embed_dim)
-        # attn_out, hidden_state_value = self.value(inputs, hidden_state_value, task)
         attn_out, hidden_state_value = self.value(inputs, hidden_state_value, task)
         return attn_out, hidden_state_value
 
     def forward_value_skill(self, inputs, hidden_state_value, task):
-        # total_hidden = self.value.encode_for_skill(inputs, hidden_state_value, task)
         total_hidden = th.cat(
             [inputs, hidden_state_value.reshape(-1, 1, self.args.entity_embed_dim)], dim=1)
         attn_out, hidden_state_value = self.value.predict(total_hidden)
@@ -131,7 +78,6 @@ class HISSDAgent(nn.Module):
 
     def forward_planner(self, inputs, hidden_state_plan, t, task,
                         actions=None, next_inputs=None, loss_out=False):
-        # h_plan = hidden_state_plan.reshape(-1, 1, self.args.entity_embed_dim)
         out_h, h, obs_loss = self.planner(inputs, hidden_state_plan, t, task,
                                           next_inputs=next_inputs, actions=actions, loss_out=loss_out)
         return out_h, h, obs_loss
@@ -156,89 +102,7 @@ class HISSDAgent(nn.Module):
             self.last_out_h, self.last_h_plan = out_h, h_plan
         _, discr_h, h_dis = self.forward_discriminator(inputs, t, task, hidden_state_dis)
         discr_h  = discr_h.reshape(-1, 1, self.args.entity_embed_dim)
-        # out_h, h_plan = self.forward_global_hidden(inputs, task, hidden_state_plan, actions)
-        # out_h = out_h.reshape(-1, 1, self.args.entity_embed_dim)
-        # out_h = th.cat(out_h, dim=2)
-
-        if not test_mode and self.adaptation:
-            own_d, enemy_d, ally_d = self.last_out_h[0].shape[1], self.last_out_h[1].shape[1], \
-                self.last_out_h[2].shape[1]
-            high_hidden = th.cat(self.last_out_h, dim=1)
-            noise = 2 * th.rand_like(high_hidden) - 1
-            high_hidden += noise
-            own_hidden, enemy_hidden, ally_hidden = high_hidden[:, :own_d], \
-                high_hidden[:, own_d: own_d+enemy_d], high_hidden[:, -ally_d:]
-            self.last_out_h = [own_hidden, enemy_hidden, ally_hidden]
-
         act, h_dec, _ = self.decoder(self.last_out_h, inputs, discr_h, hidden_state_dec, task, mask, actions)
-        # pre_state = th.cat([pre_own.unsqueeze(1), pre_enemy, pre_ally], dim=1)
-        # act, h_dec = self.decoder(inputs, hidden_state_dec, out_h, task)
-
-        if self.args.evaluate:
-            if t == 0 and len(self.c_tmp) != 0:
-                self.coordination.append(th.stack(self.c_tmp, dim=0))
-                self.specific.append(th.stack(self.s_tmp, dim=0))
-                self.max_len = max(self.max_len, len(self.c_tmp))
-                self.c_tmp, self.s_tmp = [], []
-
-            if task != self.tSNE_data.get_last_task():
-                print(f'Task: {self.tSNE_data.get_last_task()} done!')
-                self.task_count += 1
-                if len(self.coordination) != 0:
-                    self.tSNE_data.write_data(self.coordination,
-                                              self.specific,
-                                              self.max_len)
-                self.tSNE_data.write_task(task)
-                self.coordination, self.specific = [], []
-                self.c_tmp, self.s_tmp = [], []
-                self.max_len = 0
-
-            out_h = th.cat(self.last_out_h, dim=1)
-            self.c_tmp.append(out_h.cpu())
-            self.s_tmp.append(discr_h.cpu())
-            # self.coordination.append(out_h.cpu())
-            # self.specific.append(discr_h.cpu())
-            # print(out_h.cpu().shape)
-            # print(discr_h.cpu().shape)
-
-            if self.task_count == 8 and not self.saved:
-                coordination, specific, max_len = self.tSNE_data.get_data()
-                # data = {'coordination': coordination,
-                #         'specific': specific,
-                #         }
-                with h5py.File('tSNE_coordination_easy.h5', 'w') as h5file:
-                    for name, value in coordination.items():
-                        data = []
-                        # print(name)
-                        # value's item shape: (t_len, n_agent, n_entity, n_embd)
-                        dummy = th.zeros_like(value[0][0]).unsqueeze(0)   # 1, n_agent, n_entity, n_embd
-                        dummy = dummy.repeat(max_len[name], *th.ones_like(th.tensor(dummy.shape[1:])))
-                        for i in range(len(value)):
-                            i_len = value[i].shape[0]
-                            tmp = th.cat([value[i], dummy[i_len:]], dim=0)
-                            data.append(tmp)
-                        data = th.stack(data, dim=0)
-                        # print(value.shape)
-                        h5file.create_dataset(name, data=data)
-                with h5py.File('tSNE_specific_easy.h5', 'w') as h5file:
-                    # print(name)
-                    for name, value in specific.items():
-                        data = []
-                        dummy = th.zeros_like(value[0][0]).unsqueeze(0)   # 1, n_agent, 1, n_embd
-                        dummy = dummy.repeat(max_len[name], *th.ones_like(th.tensor(dummy.shape[1:])))
-                        for i in range(len(value)):
-                            i_len = value[i].shape[0]
-                            tmp = th.cat([value[i], dummy[i_len:]], dim=0)
-                            data.append(tmp)
-                        data = th.stack(data, dim=0)
-                        # print(value.shape)
-                        h5file.create_dataset(name, data=data)
-                print(50 * '=')
-                print('Representation has been saved!')
-                print(50 * '=')
-
-                self.saved = True
-                # print('=' * 50)
 
         return act, self.last_h_plan, h_dec, h_dis, skill
 
@@ -274,7 +138,6 @@ class StateEncoder(nn.Module):
         if self.state_last_action:
             self.ally_encoder = nn.Linear(state_nf_al + (self.n_actions_no_attack + 1) * 2, self.entity_embed_dim)
             self.enemy_encoder = nn.Linear(state_nf_en + 1, self.entity_embed_dim)
-            # state_nf_al += self.n_actions_no_attack + 1
         else:
             self.ally_encoder = nn.Linear(state_nf_al + (self.n_actions_no_attack + 1), self.entity_embed_dim)
             self.enemy_encoder = nn.Linear(state_nf_en + 1, self.entity_embed_dim)
@@ -332,34 +195,10 @@ class StateEncoder(nn.Module):
         energy = th.bmm(proj_query / (self.attn_embed_dim ** (1 / 2)), proj_key)
         attn_score = F.softmax(energy, dim=1)
         proj_value = entity_embed.permute(1, 2, 3, 0).reshape(bs, self.entity_embed_dim, n_entities)
-        # attn_out = th.bmm(proj_value, attn_score).squeeze(1).permute(0, 2, 1)[:, :n_agents, :]
         attn_out = th.bmm(proj_value, attn_score).squeeze(1).permute(0, 2, 1)
-        #.reshape(bs, n_entities, self.entity_embed_dim)[:, :n_agents, :]
 
         attn_out = attn_out[:, :n_agents].reshape(bs, n_agents, self.entity_embed_dim)
         return attn_out, hidden_state
-        # ally_out = attn_out[:, :n_agents]
-        # enemy_out = attn_out[:, n_agents:]
-        #
-        # ally_self_a = ally_out.unsqueeze(2).repeat(1, 1, n_agents, 1)
-        # ally_self_e = ally_out.unsqueeze(2).repeat(1, 1, n_enemies, 1)
-        # ally_relat = ally_out.unsqueeze(1).repeat(1, n_agents, 1, 1)
-        # enemy_out = enemy_out.unsqueeze(1).repeat(1, n_agents, 1, 1)
-        #
-        # enemy_out = th.cat([ally_self_e, enemy_out], dim=-1)
-        # _ally_relat = th.cat([ally_self_a, ally_relat], dim=-1)
-        #
-        # # ally_self = self.ally_forward(ally_out)
-        # enemy_relat = self.ally_to_enemy(enemy_out).reshape(bs, task_n_agents, -1, self.entity_embed_dim)
-        # ally_relat = self.ally_to_ally(_ally_relat)[:, :, 1:].reshape(bs, task_n_agents, -1, self.entity_embed_dim)
-        # ally_self = ally_out.unsqueeze(2).reshape(bs, task_n_agents, -1, self.entity_embed_dim)
-
-        # return [ally_self, enemy_relat, ally_relat], hidden_state
-        # total_hidden = th.cat([ally_self.unsqueeze(2), enemy_relat, ally_relat], dim=2)
-        # total_hidden = self.ln(total_hidden)
-
-        # attn_out = attn_out.reshape(bs * n_agents, self.entity_embed_dim)
-        # return total_hidden, hidden_state
 
 
 class ObsEncoder(nn.Module):
@@ -423,8 +262,6 @@ class ValueNet(nn.Module):
         self.transformer = Transformer(self.entity_embed_dim, args.head, args.depth, self.entity_embed_dim)
 
         self.q_skill = nn.Linear(self.entity_embed_dim, self.skill_dim)
-        # self.n_actions_no_attack = n_actions_no_attack
-        # self.reward_fc = nn.Linear(self.entity_embed_dim, 1)
         self.reward_fc = nn.Sequential(nn.Linear(self.entity_embed_dim, 128),
                                        nn.ReLU(inplace=True),
                                        nn.Linear(128, 1))
@@ -472,13 +309,6 @@ class ValueNet(nn.Module):
         enemy_hidden = self.enemy_value(enemy_feats).permute(1, 0, 2)
         history_hidden = hidden_state
 
-        # own_emb_inputs, enemy_emb_inputs, ally_emb_inputs = emb_inputs
-        # own_emb_inputs = self.agent_feedforward(own_emb_inputs)
-        # enemy_emb_inputs = self.enemy_feedforward(enemy_emb_inputs)
-        # ally_emb_inputs = self.ally_feedforward(ally_emb_inputs)
-        # print(own_emb_inputs.shape, enemy_emb_inputs.shape, ally_emb_inputs.shape)
-        # emb_hidden = th.cat([own_emb_inputs, enemy_emb_inputs, ally_emb_inputs], dim=1)
-        # total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, emb_hidden, history_hidden], dim=1)
         total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, history_hidden], dim=1)
         return total_hidden
 
@@ -491,13 +321,6 @@ class ValueNet(nn.Module):
         enemy_hidden = self.enemy_value(enemy_feats)
         history_hidden = hidden_state
 
-        # own_emb_inputs, enemy_emb_inputs, ally_emb_inputs = emb_inputs
-        # own_emb_inputs = self.agent_feedforward(own_emb_inputs)
-        # enemy_emb_inputs = self.enemy_feedforward(enemy_emb_inputs)
-        # ally_emb_inputs = self.ally_feedforward(ally_emb_inputs)
-        # print(own_emb_inputs.shape, enemy_emb_inputs.shape, ally_emb_inputs.shape)
-        # emb_hidden = th.cat([own_emb_inputs, enemy_emb_inputs, ally_emb_inputs], dim=1)
-        # total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, emb_hidden, history_hidden], dim=1)
         total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, history_hidden], dim=1)
         return total_hidden
 
@@ -544,7 +367,6 @@ class BasicDecoder(nn.Module):
         ## set attributes
         self.entity_embed_dim = args.entity_embed_dim
         self.attn_embed_dim = args.attn_embed_dim
-        # self.task_repre_dim = args.task_repre_dim
         ## get obs shape information
         obs_own_dim = decomposer.own_obs_dim
         obs_en_dim, obs_al_dim = decomposer.obs_nf_en, decomposer.obs_nf_al
@@ -600,7 +422,6 @@ class Decoder(nn.Module):
         ## set attributes
         self.entity_embed_dim = args.entity_embed_dim
         self.attn_embed_dim = args.attn_embed_dim
-        # self.task_repre_dim = args.task_repre_dim
         ## get obs shape information
         obs_own_dim = decomposer.own_obs_dim
         obs_en_dim, obs_al_dim = decomposer.obs_nf_en, decomposer.obs_nf_al
@@ -613,25 +434,15 @@ class Decoder(nn.Module):
         self.ally_value = nn.Linear(obs_al_dim, self.entity_embed_dim)
         self.enemy_value = nn.Linear(obs_en_dim, self.entity_embed_dim)
         self.own_value = nn.Linear(wrapped_obs_own_dim, self.entity_embed_dim)
-        # self.skill_value = nn.Linear(self.skill_dim, self.entity_embed_dim)
 
         self.transformer = Transformer(self.entity_embed_dim, args.head, args.depth, self.entity_embed_dim)
 
-        # self.q_skill = nn.Linear(self.entity_embed_dim, n_actions_no_attack)
         self.skill_enc = nn.Linear(self.skill_dim, self.entity_embed_dim)
-        # self.q_skill = nn.Linear(self.entity_embed_dim + self.entity_embed_dim, n_actions_no_attack)
-        # self.q_skill = nn.Linear(self.entity_embed_dim, n_actions_no_attack)
         self.q_skill = nn.Linear(self.entity_embed_dim * 2, n_actions_no_attack)
-        # self.base_q_skill = nn.Linear(self.entity_embed_dim * 2, n_actions_no_attack)
-        # self.ally_q_skill = nn.Linear(self.entity_embed_dim * 2, 1)
         self.base_q_skill = MLPNet(self.entity_embed_dim*2, n_actions_no_attack, 128, output_norm=False)
         self.ally_q_skill = MLPNet(self.entity_embed_dim*2, 1, 128, output_norm=False)
 
         self.n_actions_no_attack = n_actions_no_attack
-        # self.skill_hidden = nn.Parameter(th.zeros(1, 1, self.entity_embed_dim))
-        # self.pre_own = nn.Linear(self.entity_embed_dim, self.entity_embed_dim)
-        # self.pre_enemy = nn.Linear(self.entity_embed_dim, self.entity_embed_dim)
-        # self.pre_ally = nn.Linear(self.entity_embed_dim, self.entity_embed_dim)
         self.cls_hidden = nn.Parameter(th.zeros(1, 1, self.entity_embed_dim))
         self.cls_fc = nn.Linear(self.entity_embed_dim, self.cls_dim)
         self.cross_attn = CrossAttention(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
@@ -643,7 +454,6 @@ class Decoder(nn.Module):
     def forward(self, emb_inputs, inputs, discr_h, hidden_state, task, mask=False, actions=None):
         hidden_state = hidden_state.reshape(-1, 1, self.entity_embed_dim)
         cls_hidden = discr_h
-        # cls_hidden = self.cls_hidden.repeat(hidden_state.shape[0], 1, 1)
 
         # get decomposer, last_action_shape and n_agents of this specific task
         task_decomposer = self.task2decomposer[task]
@@ -700,81 +510,22 @@ class Decoder(nn.Module):
         own_hidden = self.own_value(own_obs).unsqueeze(1)
         ally_hidden = self.ally_value(ally_feats)
         enemy_hidden = self.enemy_value(enemy_feats)
-        # skill_hidden = self.skill_value(skill).unsqueeze(1)
         history_hidden = hidden_state
-        # emb_hidden = self.ln(self.agent_feedforward(emb_inputs))
         own_emb_inputs, enemy_emb_inputs, ally_emb_inputs = emb_inputs
-        # own_emb_inputs = self.agent_feedforward(own_emb_inputs)
-        # enemy_emb_inputs = self.enemy_feedforward(enemy_emb_inputs)
-        # ally_emb_inputs = self.ally_feedforward(ally_emb_inputs)
         emb_hidden = th.cat([own_emb_inputs, enemy_emb_inputs, ally_emb_inputs], dim=1)
-
-        # pre_own_h = self.pre_own(pre_state[:, 0]).unsqueeze(1)
-        # pre_enemy_h = self.pre_enemy(pre_state[:, 1:1+n_enemy])
-        # pre_ally_h = self.pre_ally(pre_state[:, 2+n_enemy:2+n_enemy+n_ally])
-
-        # total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, history_hidden], dim=1)
-        # total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, pre_own_h, pre_enemy_h, pre_ally_h, history_hidden], dim=1)
-
         total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, emb_hidden, history_hidden], dim=1)
-        # total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, history_hidden], dim=1)
 
         outputs = self.transformer(total_hidden, None)
         h = outputs[:, -1, :]
-        # outputs = self.cross_attn(outputs[:, :-1], emb_inputs, task)
         outputs = outputs[:, : n_entity]
 
-        # cls_out = outputs[:, -2]
-        # cls_out = cls_hidden
         cls_out = self.cls_fc(th.zeros_like(h).detach())
-        # outputs = outputs[:, :-2]
         skill_hidden = discr_h.reshape(-1, 1, self.entity_embed_dim).repeat(1, outputs.shape[1], 1)
         outputs = th.cat([outputs, skill_hidden], dim=-1)
-        # skill_ = outputs[:, -2, :]
-        # skill_ = history_skill
-        # skill_emb = self.skill_enc(skill)
-        # base_action_inputs = th.cat([outputs[:, 0, :], skill_emb], dim=-1)
         base_action_inputs = outputs[:, 0, :]
-        # q_base = self.q_skill(base_action_inputs)
-
-        # if t % 5 == 0 or q_skill is None:
-        # agent_skill_inputs = th.cat([base_action_inputs, skill_], dim=-1)
-        # q_skill = self.agent_q_skill(agent_skill_inputs)
-        # q_skill = self.agent_q_skill(skill_)
-        # q_skill = F.softmax(q_skill, dim=-1)
-        # skill_id = th.max(q_skill, dim=-1, keepdim=True)[1]
-        # agent_skill_inputs = th.cat([own_obs, skill_hidden.squeeze(1), hidden_state.squeeze(1).detach()], dim=-1)
-        # agent_skill_inputs = th.cat([base_action_inputs, outputs[:, -1, :].detach()], dim=-1)
-        # skill_ = self.agent_skill_hidden(agent_skill_inputs)
-        # q_skill = th.rand(h.shape[0], self.skill_dim)
-
-        # q_attack_list = []
-        # skill_emb = self.skill_dict(skill_id).squeeze(1)
-        # skill_emb = self.skill_encoder(q_skill).unsqueeze(1).repeat(1, enemy_feats.size(0), 1)
-
-        # q_base = self.base_q_skill(th.cat([base_action_inputs, skill_emb[:, 0]], dim=-1))
         q_base = self.base_q_skill(base_action_inputs)
-        # base_action_inputs = base_action_inputs.unsqueeze(1).repeat(1, enemy_feats.size(1), 1)
-        # skill_emb = skill_emb.unsqueeze(1).repeat(1, enemy_feats.size(1), 1)
         attack_action_inputs = outputs[:, 1: 1+n_enemy]
-        # attack_action_inputs = th.cat(
-        # [base_action_inputs, outputs[:, 1: 1+enemy_feats.size(1), :], skill_emb], dim=-1)
-        # [base_action_inputs, outputs[:, 1: 1+enemy_feats.size(1), :]], dim=-1)
-        # [outputs[:, 1: 1+enemy_feats.size(1), :], skill_emb[:, 1:]], dim=-1)
-        # [outputs[:, 1: 1+enemy_feats.size(1), :]], dim=-1)
         q_attack = self.ally_q_skill(attack_action_inputs)
-        # q_attack = self.ally_q_skill(outputs[:, 1: 1+enemy_feats.size(0), :])
-        # for i in range(enemy_feats.size(0)):
-        #     # attack_action_inputs = th.cat([outputs[:, 1+i, :], skill_emb], dim=-1)
-        #     # attack_action_inputs = outputs[:, 1+i, :]
-        #     attack_action_inputs = th.cat([base_action_inputs, outputs[:, 1+i, :]], dim=-1)
-        #     q_enemy = self.ally_q_skill(attack_action_inputs)
-        #     # q_enemy_mean = th.mean(q_enemy, 1, True)
-        #     q_attack_list.append(q_enemy)
-        # q_attack = th.stack(q_attack_list, dim=1).squeeze()
-
-        # q = th.cat([q_base, q_attack], dim=-1)
-        # print(q_base.shape, q_attack.shape)
         q = th.cat([q_base, q_attack.reshape(-1, n_enemy)], dim=-1)
 
         return q, h, cls_out
@@ -816,7 +567,6 @@ class PlannerModel(nn.Module):
         ## set attributes
         self.entity_embed_dim = args.entity_embed_dim
         self.attn_embed_dim = args.attn_embed_dim
-        # self.task_repre_dim = args.task_repre_dim
         ## get obs shape information
         obs_own_dim = decomposer.own_obs_dim
         obs_en_dim, obs_al_dim = decomposer.obs_nf_en, decomposer.obs_nf_al
@@ -831,16 +581,11 @@ class PlannerModel(nn.Module):
         self.own_value = nn.Linear(wrapped_obs_own_dim, self.entity_embed_dim)
         self.value_vale = nn.Linear(1, self.entity_embed_dim)
         self.transformer = Transformer(self.entity_embed_dim, args.head, args.depth, self.entity_embed_dim)
-        self.seq_wrapper = SequenceObservationWrapper(
-            task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
         self.obs_decoder = Transformer(self.entity_embed_dim, args.head, args.depth, self.entity_embed_dim)
 
         self.base_q_skill = nn.Linear(self.entity_embed_dim * 2, n_actions_no_attack)
         self.ally_q_skill = nn.Linear(self.entity_embed_dim * 2, 1)
 
-        # self.own_fc = nn.Linear(self.entity_embed_dim, wrapped_obs_own_dim)
-        # self.enemy_fc = nn.Linear(self.entity_embed_dim, obs_en_dim)
-        # self.ally_fc = nn.Linear(self.entity_embed_dim, obs_al_dim)
         self.own_fc = MLPNet(self.entity_embed_dim, wrapped_obs_own_dim, 128, 3, False)
         self.enemy_fc = MLPNet(self.entity_embed_dim, obs_en_dim, 128, 3, False)
         self.ally_fc = MLPNet(self.entity_embed_dim, obs_al_dim, 128, 3, False)
@@ -860,9 +605,7 @@ class PlannerModel(nn.Module):
         self.dec_ally_forward = MLPNet(self.entity_embed_dim, self.entity_embed_dim, 128)
 
         self.n_actions_no_attack = n_actions_no_attack
-        # self.cat_dim = args.n_task
         self.reset_last()
-        # self.act_emb = nn.Embedding(2, 64)
         self.skill_module = SkillModule(args)
         self.rec_module = MergeRec(task2input_shape_info, task2decomposer, task2n_agents, decomposer, args)
 
@@ -893,22 +636,11 @@ class PlannerModel(nn.Module):
             enemy_out = self.value_enemy_forward(enemy_emb)
             ally_out = self.value_ally_forward(ally_emb)
 
-            # total_hidden = th.cat([own_out, enemy_out, ally_out], dim=1)
-            # outputs = self.obs_decoder(total_hidden, None)
-            # own_emb, enemy_emb, ally_emb = \
-            # outputs[:, 0], outputs[:, 1:n_enemy+1], outputs[:, -n_ally:]
-            #
-            # own_out = self.dec_own_forward(own_emb)
-            # enemy_out = self.dec_enemy_forward(enemy_emb)
-            # ally_out = self.dec_ally_forward(ally_emb)
-
         return [own_out, enemy_out, ally_out]
 
     def forward(self, inputs, hidden_state, t, task,
                 test=True, next_inputs=None, actions=None, loss_out=False):
         hidden_state = hidden_state.reshape(-1, 1, self.entity_embed_dim)
-        # if t == 0:
-        # 	self.reset_last()
         # get decomposer, last_action_shape and n_agents of this specific task
         task_decomposer = self.task2decomposer[task]
         task_n_agents = self.task2n_agents[task]
@@ -944,14 +676,6 @@ class PlannerModel(nn.Module):
         ally_feats = ally_feats.permute(1, 0, 2)
         n_enemy, n_ally = enemy_feats.shape[1], ally_feats.shape[1]
 
-        # value = th.zeros(own_obs.shape[0], 1)
-        # if t == 0:
-        #     obs_dict = self.seq_wrapper.obs_reset(own_obs, enemy_feats, ally_feats, value)
-        # else:
-        #     obs_dict = self.seq_wrapper.obs_step(own_obs, enemy_feats, ally_feats, value)
-        #
-        # own_stack, enemy_stack, ally_stack, value_stack, mask_stack = obs_dict['own'], \
-        # obs_dict['enemy'], obs_dict['ally'], obs_dict['value'], obs_dict['mask']
         own_stack, enemy_stack, ally_stack = own_obs.unsqueeze(1).unsqueeze(1), enemy_feats.unsqueeze(1), \
         ally_feats.unsqueeze(1)
 
@@ -959,42 +683,15 @@ class PlannerModel(nn.Module):
         own_hidden = self.own_value(own_stack)
         ally_hidden = self.ally_value(ally_stack)
         enemy_hidden = self.enemy_value(enemy_stack)
-        # value_hidden = self.value_value(value_stack)
         history_hidden = hidden_state.unsqueeze(1)
 
-        # value = self.rew_enc(value)
         b = own_hidden.shape[0]
-        # mask_stack = mask_stack.reshape(1, -1, 1, 1).repeat(b, 1, n_enemy+n_ally+2, self.entity_embed_dim)
         total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden, history_hidden], dim=2)
-        # total_hidden *= mask_stack
         total_hidden = total_hidden.reshape(b, -1, self.entity_embed_dim)
-
-        # act: bs * t_len * n_agent, act_idx
-
-        # b, n, _ = total_hidden.shape
-        # device = total_hidden.device
-        # idx_0, idx_1 = th.tensor(0).to(device), th.tensor(1).to(device)
-        # act_0 = self.act_emb(idx_0).reshape(1, 1, self.entity_embed_dim)
-        # act_1 = self.act_emb(idx_1)
-        # act_bi = act_0.repeat(b, n-1, 1)
-        # for i in range(b):
-        #     if act[i] < self.n_actions_no_attack:
-        #         act_bi[i, 0] = act_1
-        #     else:
-        #         act_bi[i, act[i]-self.n_actions_no_attack+1] = act_1
-        # total_hidden[:, :-1] += act_bi
 
         outputs = self.transformer(total_hidden, None).reshape(b, self.args.num_stack_frames, -1, self.entity_embed_dim)
         h = outputs[:, -1, -1]
         outputs = outputs[:, :, :-1]
-        # h = hidden_state.reshape(-1, self.entity_embed_dim)
-
-        # cls_out_h = outputs[:, -1]
-        # cls_out = self.cls_fc(cls_out_h)
-
-        # own_out = own_out_h.reshape(bs, task_n_agents, -1, self.entity_embed_dim)
-        # enemy_out = enemy_out_h.reshape(bs, task_n_agents, -1, self.entity_embed_dim)
-        # ally_out = ally_out_h.reshape(bs, task_n_agents, -1, self.entity_embed_dim)
 
         commit_loss = th.tensor(0.).to(inputs.device)
         if self.vq_skill:
@@ -1004,141 +701,15 @@ class PlannerModel(nn.Module):
         enemy_out_h = outputs[:, -1, 1:1+n_enemy]
         ally_out_h = outputs[:, -1, 1+n_enemy:1+n_enemy+n_ally]
 
-        # own_out = self.own_fc(own_out_h).reshape(bs * task_n_agents, -1)
-        # enemy_out = self.enemy_fc(enemy_out_h).reshape(bs * task_n_agents, n_enemy, -1)
-        # ally_out = self.ally_fc(ally_out_h).reshape(bs * task_n_agents, n_ally, -1)
         own_out, enemy_out, ally_out = own_out_h, enemy_out_h, ally_out_h
-
-        # own_out = self.ln(own_out)
-        # enemy_out = self.ln(enemy_out)
-        # ally_out = self.ln(ally_out)
 
         out_loss = th.tensor(0.).to(inputs.device)
         if loss_out and next_inputs is not None:
-            # obs_inputs, last_action_inputs, agent_id_inputs = next_inputs[:, :obs_dim], \
-            # next_inputs[:, obs_dim:obs_dim + last_action_shape], \
-            # next_inputs[:, obs_dim + last_action_shape:]
-            #
-            # # decompose observation input
-            # own_obs, enemy_feats, ally_feats = task_decomposer.decompose_obs(
-            #     obs_inputs)  # own_obs: [bs*self.n_agents, own_obs_dim]
-            #
-            # # embed agent_id inputs and decompose last_action_inputs
-            # agent_id_inputs = [
-            #     th.as_tensor(binary_embed(i + 1, self.args.id_length, self.args.max_agent), dtype=own_obs.dtype) for i in
-            #     range(task_n_agents)]
-            # agent_id_inputs = th.stack(agent_id_inputs, dim=0).repeat(bs, 1).to(own_obs.device)
-            # _, attack_action_info, compact_action_states = task_decomposer.decompose_action_info(last_action_inputs)
-            #
-            # # incorporate agent_id embed and compact_action_states
-            # own_obs = th.cat([own_obs, agent_id_inputs, compact_action_states], dim=-1)
-            #
-            # # incorporate attack_action_info into enemy_feats
-            # attack_action_info = attack_action_info.transpose(0, 1).unsqueeze(-1)
-            # enemy_feats = th.cat([th.stack(enemy_feats, dim=0), attack_action_info], dim=-1)
-            # ally_feats = th.stack(ally_feats, dim=0)
-            #
-            # enemy_feats = enemy_feats.permute(1, 0, 2)
-            # ally_feats = ally_feats.permute(1, 0, 2)
             out_loss = self.rec_module([own_out, enemy_out, ally_out], next_inputs, task,
                                        t=t, actions=actions)
             out_loss += commit_loss
 
-            # out_loss = F.mse_loss(own_out, own_obs.detach()) + \
-            #     F.mse_loss(enemy_out, enemy_feats.detach()) + \
-            #     F.mse_loss(ally_out, ally_feats.detach()) + commit_loss
-        # self.add_last(own_obs.detach(), enemy_feats.detach(), ally_feats.detach())
-        # return own_out, h
         return [own_out_h, enemy_out_h, ally_out_h], h, out_loss
-
-
-class SequenceObservationWrapper:
-    def __init__(self, task2input_shape_info, task2decomposer, task2n_agents, decomposer, args):
-        super(SequenceObservationWrapper, self).__init__()
-        self.task2last_action_shape = {task: task2input_shape_info[task]["last_action_shape"] for task in
-            task2input_shape_info}
-        self.task2decomposer = task2decomposer
-        self.task2n_agents = task2n_agents
-        self.args = args
-
-        #### define various dimension information
-        ## set attributes
-        self.entity_embed_dim = args.entity_embed_dim
-        ## get obs shape information
-        obs_own_dim = decomposer.own_obs_dim
-        obs_en_dim, obs_al_dim = decomposer.obs_nf_en, decomposer.obs_nf_al
-        n_actions_no_attack = decomposer.n_actions_no_attack
-        ## get wrapped obs_own_dim
-        wrapped_obs_own_dim = obs_own_dim + args.id_length + n_actions_no_attack + 1
-        ## enemy_obs ought to add attack_action_info
-        obs_en_dim += 1
-
-        self.n_actions_no_attack = n_actions_no_attack
-        self.skill_dim = args.skill_dim
-        self.own_dim = wrapped_obs_own_dim
-        self.enemy_dim = obs_en_dim
-        self.ally_dim = obs_al_dim
-
-        # time window
-        self.num_stack_frames = args.num_stack_frames
-        self.own_stack = collections.deque([], maxlen=self.num_stack_frames)
-        self.enemy_stack = collections.deque([], maxlen=self.num_stack_frames)
-        self.ally_stack = collections.deque([], maxlen=self.num_stack_frames)
-        self.value_stack = collections.deque([], maxlen=self.num_stack_frames)
-        self.time_steps = collections.deque([], maxlen=self.num_stack_frames)
-        self.mask = collections.deque([], maxlen=self.num_stack_frames)
-        self.pos_enc = nn.Embedding(self.num_stack_frames, self.entity_embed_dim)
-        self.pos = th.tensor([i for i in range(self.num_stack_frames)])
-
-    def _get_obs(self, device):
-        obs = {
-            'own': th.stack(list(self.own_stack), dim=1).unsqueeze(2).to(device),
-            'enemy': th.stack(list(self.enemy_stack), dim=1).to(device),
-            'ally': th.stack(list(self.ally_stack), dim=1).to(device),
-            'value': th.stack(list(self.value_stack), dim=1).unsqueeze(2).to(device),
-            'mask': th.tensor(list(self.mask)).reshape(-1, 1).to(device),
-            'time': th.tensor(list(self.time_steps)).reshape(-1, 1).to(device),
-        }
-        return obs
-
-    def pad_current_episode(self, own, enemy, ally, value, n):
-        for _ in range(n):
-            self.own_stack.append(th.zeros_like(own))
-            self.enemy_stack.append(th.zeros_like(enemy))
-            self.ally_stack.append(th.zeros_like(ally))
-            self.value_stack.append(th.zeros_like(value))
-            self.mask.append(0)
-            self.time_steps.append(0)
-
-    def obs_reset(self, own, enemy, ally, value):
-        self.pad_current_episode(
-            own, enemy, ally, value, self.num_stack_frames - 1)
-        self.time_now = 0
-        self.own_stack.append(own)
-        self.enemy_stack.append(enemy)
-        self.ally_stack.append(ally)
-        self.value_stack.append(value)
-        self.mask.append(1)
-        self.time_steps.append(self.time_now)
-        return self._get_obs(own.device)
-
-    def obs_step(self, own, enemy, ally, value):
-        self.time_now += 1
-        self.own_stack.append(own)
-        self.enemy_stack.append(enemy)
-        self.ally_stack.append(ally)
-        self.value_stack.append(value)
-        self.mask.append(1)
-        self.time_steps.append(self.time_now)
-        return self._get_obs(own.device)
-
-    def position_encoding(self, obs_emb):
-        # obs_emb: bs, t_len, n, dim
-        bs, _, n, _ = obs_emb.shape
-        pos_emb = self.pos_enc(self.pos).reshape(
-            1, self.num_stack_frames, 1, self.entity_embed_dim).repeat(bs, 1, n, 1)
-        obs_emb += pos_emb
-        return obs_emb
 
 
 class Discriminator(nn.Module):
@@ -1157,7 +728,6 @@ class Discriminator(nn.Module):
         ## set attributes
         self.entity_embed_dim = args.entity_embed_dim
         self.attn_embed_dim = args.attn_embed_dim
-        # self.task_repre_dim = args.task_repre_dim
         ## get obs shape information
         obs_own_dim = decomposer.own_obs_dim
         obs_en_dim, obs_al_dim = decomposer.obs_nf_en, decomposer.obs_nf_al
@@ -1193,7 +763,6 @@ class Discriminator(nn.Module):
                                           nn.Linear(128, self.entity_embed_dim))
 
     def forward(self, inputs, t, task, hidden_state):
-        # hidden_state = hidden_state.reshape(-1, 1, self.entity_embed_dim)
         # get decomposer, last_action_shape and n_agents of this specific task
         task_decomposer = self.task2decomposer[task]
         task_n_agents = self.task2n_agents[task]
@@ -1227,7 +796,6 @@ class Discriminator(nn.Module):
 
         enemy_feats = enemy_feats.permute(1, 0, 2)
         ally_feats = ally_feats.permute(1, 0, 2)
-        # n_enemy, n_ally = enemy_feats.shape[1], ally_feats.shape[1]
 
         # compute key, query and value for attention
         own_hidden = self.own_value(own_obs).unsqueeze(1)
@@ -1238,8 +806,6 @@ class Discriminator(nn.Module):
         b = own_hidden.shape[0]
         total_hidden = th.cat([own_hidden, enemy_hidden, ally_hidden], dim=1)
         outputs = self.transformer(total_hidden, None)
-        # h = outputs[:, -1]
-        # outputs = outputs[:, :-1]
         h = history_hidden
 
         own_out_h = outputs[:, 0].reshape(-1, self.entity_embed_dim)
@@ -1248,7 +814,6 @@ class Discriminator(nn.Module):
             own_out_h = self.act_proj(own_out_h)
         elif self.ssl_type == 'byol':
             own_out_h = self.act_proj(own_out)
-        # own_out = self.pre(own_out_h)
 
         return own_out, own_out_h, h
 
@@ -1290,7 +855,6 @@ class CrossAttention(nn.Module):
         if self.state_last_action:
             self.ally_encoder = nn.Linear(state_nf_al + (self.n_actions_no_attack + 1) * 2, self.entity_embed_dim)
             self.enemy_encoder = nn.Linear(state_nf_en + 1, self.entity_embed_dim)
-            # state_nf_al += self.n_actions_no_attack + 1
         else:
             self.ally_encoder = nn.Linear(state_nf_al + (self.n_actions_no_attack + 1), self.entity_embed_dim)
             self.enemy_encoder = nn.Linear(state_nf_en + 1, self.entity_embed_dim)
@@ -1318,9 +882,7 @@ class CrossAttention(nn.Module):
         energy = th.bmm(proj_query / (self.attn_embed_dim ** (1 / 2)), proj_key)
         attn_score = F.softmax(energy, dim=1)
         proj_value = dec_emb.permute(0, 1, 3, 2).reshape(bs, self.entity_embed_dim, n_entities)
-        # attn_out = th.bmm(proj_value, attn_score).squeeze(1).permute(0, 2, 1)[:, :n_agents, :]
         attn_out = th.bmm(proj_value, attn_score).squeeze(1).permute(0, 2, 1)
-        #.reshape(bs, n_entities, self.entity_embed_dim)[:, :n_agents, :]
 
         attn_out = attn_out.reshape(bs, n_entities, self.entity_embed_dim)
         return attn_out
@@ -1356,7 +918,6 @@ class MergeRec(nn.Module):
         if self.state_last_action:
             self.ally_encoder = nn.Linear(state_nf_al + (self.n_actions_no_attack + 1) * 2, self.entity_embed_dim)
             self.enemy_encoder = nn.Linear(state_nf_en + 1, self.entity_embed_dim)
-            # state_nf_al += self.n_actions_no_attack + 1
         else:
             self.ally_encoder = nn.Linear(state_nf_al + (self.n_actions_no_attack + 1), self.entity_embed_dim)
             self.enemy_encoder = nn.Linear(state_nf_en + 1, self.entity_embed_dim)
@@ -1364,7 +925,6 @@ class MergeRec(nn.Module):
         # we ought to do attention
         self.own_qk = nn.Linear(self.entity_embed_dim, self.attn_embed_dim*2)
         self.enemy_qk = nn.Linear(self.entity_embed_dim, self.attn_embed_dim*2)
-        # self.ally_qk = nn.Linear(self.entity_embed_dim, self.attn_embed_dim*2)
         self.enemy_ref_qk = nn.Linear(self.entity_embed_dim, self.attn_embed_dim*2)
         self.norm = nn.Sequential(nn.LayerNorm(self.attn_embed_dim), nn.Tanh())
 
@@ -1422,9 +982,7 @@ class MergeRec(nn.Module):
         energy = th.bmm(proj_query / (self.attn_embed_dim ** (1 / 2)), proj_key)
         attn_score = F.softmax(energy, dim=1)
         proj_value = emb_inputs.permute(0, 2, 1)
-        # attn_out = th.bmm(proj_value, attn_score).squeeze(1).permute(0, 2, 1)[:, :n_agents, :]
         attn_out = th.bmm(proj_value, attn_score).permute(0, 2, 1)
-        #.reshape(bs, n_entities, self.entity_embed_dim)[:, :n_agents, :]
         attn_out = attn_out.reshape(bs, n, self.entity_embed_dim)
 
         return attn_out
@@ -1441,11 +999,9 @@ class MergeRec(nn.Module):
             0, 2, 1, 3).reshape(-1, n_agents, self.entity_embed_dim)
         enemy_emb = th.cat(
             [self.last_enemy_h.reshape(-1, 1, self.entity_embed_dim), enemy_emb], dim=-2)
-        # ally_emb = ally_emb.reshape(bs, n_agents, n_agents-1, self.entity_embed_dim)
 
         own_q, own_k = self.own_qk(own_emb).chunk(2, -1)
         enemy_q, enemy_k = self.enemy_qk(enemy_emb).chunk(2, -1)
-        # ally_q, ally_k = self.ally_q(ally_emb).chunk(2, -1)
 
         enemy_ref = self.attn_process(enemy_emb, enemy_q, enemy_k)[:, 0].reshape(
             bs, n_enemies, self.entity_embed_dim)
@@ -1463,8 +1019,6 @@ class MergeRec(nn.Module):
         al_dim, en_dim = ally_states.shape[-1], enemy_states.shape[-1]
         ally_out = self.ally_dec_fc(ally_out).reshape(-1, al_dim)
         enemy_out = self.enemy_dec_fc(enemy_out).reshape(-1, en_dim)
-        # print(enemy_out.shape, enemy_states.shape, n_enemies)
-        # enemy_states = enemy_states.unsqueeze(1).repeat(1, n_agents, 1, 1)
 
         loss = F.mse_loss(ally_out, ally_states.reshape(-1, al_dim).detach()) + \
             F.mse_loss(enemy_out, enemy_states.reshape(-1, en_dim).detach())

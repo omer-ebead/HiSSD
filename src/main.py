@@ -15,7 +15,6 @@ import yaml
 # import run program
 from run import run as run
 from mto import run as mto
-from ada import run as ada
 
 SETTINGS['CAPTURE_MODE'] = "fd" # set to "no" if you want to see stdout/stderr in console
 logger = get_logger()
@@ -38,8 +37,6 @@ def my_main(_run, _config, _log):
     # run the framework
     if config['run_file'].startswith('mto'):
         mto(_run, config, _log)
-    elif config['run_file'].startswith('ada'):
-        ada(_run, config, _log)
     else:
         run(_run, config, _log)
 

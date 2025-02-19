@@ -83,7 +83,6 @@ class HISSDSMAC:
         )
 
         return agent_outs.reshape(ep_batch.batch_size * self.task2n_agents[task], 1, -1)
-        # return agent_outs.reshape(ep_batch.batch_size, self.task2n_agents[task], -1, self.main_args.entity_embed_dim)
 
     def forward_global_action(
         self, ep_batch, obs_emb, disrc_h, t, task, test_model=False
@@ -109,7 +108,6 @@ class HISSDSMAC:
     def forward_value(self, ep_batch, t, task, test_mode=False, actions=None):
         bs = ep_batch.batch_size
         agent_inputs = self._build_inputs(ep_batch, t, task)
-        # batch_emb = batch_emb.reshape(bs * self.task2n_agents[task], -1, self.main_args.entity_embed_dim)
         agent_outs, self.hidden_states_value = self.agent.forward_value(
             agent_inputs, self.hidden_states_value, task, actions=actions
         )
@@ -124,12 +122,8 @@ class HISSDSMAC:
 
         return agent_outs.reshape(ep_batch.batch_size, self.task2n_agents[task], 1)
 
-    # def forward_seq_action(self, ep_batch, skill_action, t, task, test_model=False):
     def forward_seq_action(self, ep_batch, t, task, mask=False, test_model=False):
         agent_seq_inputs = []
-        # if t == 0:
-        #     self.q_skill = None
-        # skill_action = skill_action.reshape(-1, self.skill_dim)
         for i in range(self.c_step):
             agent_inputs = self._build_inputs(ep_batch, t + i, task)
             agent_seq_inputs.append(agent_inputs)
@@ -151,7 +145,6 @@ class HISSDSMAC:
         return agent_seq_outs.view(
             ep_batch.batch_size, self.c_step, self.task2n_agents[task], -1
         )
-        # obs_seq_outs.view(ep_batch.batch_size, self.c_step, self.task2n_agents[task], -1, self.main_args.entity_embed_dim)
 
     def forward_planner(
         self,
@@ -169,7 +162,6 @@ class HISSDSMAC:
             next_inputs = None
             if training:
                 next_inputs = ep_batch["state"][:, t + self.c_step]
-                # next_inputs = self._build_inputs(ep_batch, t+self.c_step, task)
             out_h, self.hidden_states_plan, obs_loss = self.agent.forward_planner(
                 agent_inputs,
                 self.hidden_states_plan,
@@ -180,19 +172,8 @@ class HISSDSMAC:
                 loss_out=loss_out,
             )
             self.last_out_h, self.last_obs_loss = out_h, obs_loss
-        # agent_inputs = ep_batch["state"][:, t]
-        # out_h, self.hidden_states_plan = self.agent.forward_global_hidden(agent_inputs, task, self.hidden_states_plan, actions=actions)
-        # out_loss, out_h, self.hidden_states_plan = self.agent.forward_planner(agent_inputs, self.hidden_states_plan, t, task)
-
-        # out_h[0] = out_h[0].unsqueeze(-2)
-        # out_h[0], out_h[1], out_h[2] = out_h[0].reshape(ep_batch.batch_size, self.task2n_agents[task], 1, self.main_args.entity_embed_dim), \
-        # out_h[1].reshape(ep_batch.batch_size, self.task2n_agents[task], -1, self.main_args.entity_embed_dim), \
-        # out_h[2].reshape(ep_batch.batch_size, self.task2n_agents[task], -1, self.main_args.entity_embed_dim)
 
         return self.last_out_h, self.last_obs_loss
-        # return own.reshape(ep_batch.batch_size, self.task2n_agents[task], 1, self.main_args.skill_dim), \
-        # enemy.reshape(ep_batch.batch_size, self.task2n_agents[task], -1, self.main_args.skill_dim), \
-        # ally.reshape(ep_batch.batch_size, self.task2n_agents[task], -1, self.main_args.skill_dim)
 
     def forward_planner_feedforward(self, emb_inputs, forward_type="action"):
         out_h = self.agent.forward_planner_feedforward(emb_inputs, forward_type)
@@ -217,8 +198,6 @@ class HISSDSMAC:
         actions = ep_batch["actions"][:, t]
 
         bs = agent_inputs.shape[0] // self.task2n_agents[task]
-        # task_repre = self.get_task_repres(task, require_grad=False)
-        # task_repre = task_repre.repeat(bs, 1)
 
         if t % self.c_step == 0:
             (
@@ -239,7 +218,6 @@ class HISSDSMAC:
                 local_obs=None,
                 test_mode=test_mode,
             )
-            # local_obs=local_agent_inputs)
         else:
             (
                 agent_outs,
@@ -259,10 +237,6 @@ class HISSDSMAC:
                 local_obs=None,
                 test_mode=test_mode,
             )
-            # local_obs=local_agent_inputs)
-
-        # agent_outs, self.hidden_states_enc, self.hidden_states_dec, self.q_skill, self.skill_hidden, _ = self.agent(
-        #     agent_inputs, self.hidden_states_enc, self.hidden_states_dec, task, self.skill_hidden, self.q_skill, t)
 
         # Softmax the agent outputs if they're policy logits
         if self.agent_output_type == "pi_logits":
@@ -318,7 +292,6 @@ class HISSDSMAC:
         self.hidden_states_dis = hidden_states_dis.unsqueeze(0).expand(
             batch_size, n_agents, -1
         )
-        # self.skill_hidden = skill_hidden.unsqueeze(0).expand(batch_size, n_agents, -1)
 
     def parameters(self):
         return self.agent.parameters()
@@ -329,8 +302,6 @@ class HISSDSMAC:
 
     def cuda(self):
         self.agent.cuda()
-        # for task in self.train_tasks:
-        #     self.task2dynamic_decoder[task].cuda()
 
     def save_models(self, path):
         """we don't save the state of task dynamic decoder"""
