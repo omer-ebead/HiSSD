@@ -1,0 +1,24 @@
+env: "gymma"
+common_reward: True # Run experiment with common reward setup
+reward_scalarisation: "sum" # How to aggregate rewards to single common reward (only used if common_reward is True)
+
+env_args:
+  key: null
+  time_limit: 100
+  pretrained_wrapper: null
+  N: 3
+
+test_greedy: True
+test_nepisode: 100
+test_interval: 50000
+log_interval: 50000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 2050000
+
+# offline dataset
+offline_data_folder: "dataset"
+offline_data_name: ""
+offline_data_quality: "expert"
+offline_data_size: 2000
+offline_data_shuffle: False

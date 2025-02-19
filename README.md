@@ -1,4 +1,4 @@
-# Hi-SSD: Learning Generalizable Skills from Offline Multi-Task Data for Multi-Agent Coordination
+# HiSSD: Learning Generalizable Skills from Offline Multi-Task Data for Multi-Agent Coordination
 
 This is the implementation of the ICLR-2025 conference submission "Learning Generalizable Skills from Offline Multi-Task Data for Multi-Agent Coordination".
 
