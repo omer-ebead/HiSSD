@@ -64,6 +64,5 @@ python src/main.py --mto --config=hissd --env-config=sc2_offline --task-config=m
 
 All results will be stored in the `results` folder. You can see the console output, config, and tensorboard logging in the cooresponding directory.
 
-## License
-
-Code licensed under the Apache License v2.0.
+## Build upon ODIS
+Our HiSSD is built upon ODIS, please refer to [https://github.com/LAMDA-RL/ODIS](https://github.com/LAMDA-RL/ODIS).
