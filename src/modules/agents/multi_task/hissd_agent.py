@@ -4,17 +4,47 @@ import torch as th
 from torch.cuda import device_of
 import torch.nn as nn
 import torch.nn.functional as F
+import h5py
 
 from utils.embed import polynomial_embed, binary_embed
 from utils.transformer import Transformer
 from .vq_skill import SkillModule, MLPNet
 
 
-class MODELNPAgent(nn.Module):
+class Eval:
+    def __init__(self):
+        super(Eval, self).__init__()
+        self.last_task = ''
+        self.coordination = {}
+        self.specific = {}
+        self.max_len = {}
+
+    def get_last_task(self):
+        return self.last_task
+
+    def get_data(self):
+        return self.coordination, self.specific, self.max_len
+
+    def reset_all(self):
+        self.last_task = ''
+        self.coordination = {}
+        self.specific = {}
+        self.max_len = {}
+
+    def write_task(self, task):
+        self.last_task = task
+
+    def write_data(self, coordination, specific, max_len):
+        self.coordination[self.last_task] = coordination
+        self.specific[self.last_task] = specific
+        self.max_len[self.last_task] = max_len
+
+
+class HISSDAgent(nn.Module):
     """  sotax agent for multi-task learning """
 
     def __init__(self, task2input_shape_info, task2decomposer, task2n_agents, decomposer, args):
-        super(MODELNPAgent, self).__init__()
+        super(HISSDAgent, self).__init__()
         self.task2last_action_shape = {task: task2input_shape_info[task]["last_action_shape"] for task in
             task2input_shape_info}
         self.task2decomposer = task2decomposer
@@ -36,6 +66,17 @@ class MODELNPAgent(nn.Module):
 
         self.last_out_h = None
         self.last_h_plan = None
+
+        if self.args.evaluate:
+            self.tSNE_data = Eval()
+            self.task_count = 0
+        self.coordination = []
+        self.specific = []
+        self.c_tmp, self.s_tmp = [], []
+        self.saved = False
+        max_len = 0
+        self.adaptation = args.adaptation
+        self.noise_weight = args.noise_weight
 
     def init_hidden(self):
         # make hidden states on the same device as model
@@ -59,13 +100,13 @@ class MODELNPAgent(nn.Module):
         seq_act = th.stack(seq_act, dim=1)
         # seq_obs = th.stack(seq_obs, dim=1)
 
-        return seq_act, hidden_state, h_plan 
+        return seq_act, hidden_state, h_plan
 
     # def forward_global_hidden(self, inputs, task, hidden_state_enc=None, actions=None):
     #     total_hidden, h_enc = self.state_encoder(inputs, hidden_state_enc, task, actions=actions)
     #     return total_hidden, h_enc
 
-    def forward_action(self, inputs, emb_inputs, discr_h, hidden_state_dec, hidden_state_plan, task, 
+    def forward_action(self, inputs, emb_inputs, discr_h, hidden_state_dec, hidden_state_plan, task,
                        mask=False, t=0, actions=None):
         h_plan = hidden_state_plan
         act, h_dec, cls_out = self.decoder(emb_inputs, inputs, discr_h, hidden_state_dec, task, mask, actions)
@@ -88,10 +129,10 @@ class MODELNPAgent(nn.Module):
         attn_out, hidden_state_value = self.value.predict(total_hidden)
         return attn_out, hidden_state_value
 
-    def forward_planner(self, inputs, hidden_state_plan, t, task, 
+    def forward_planner(self, inputs, hidden_state_plan, t, task,
                         actions=None, next_inputs=None, loss_out=False):
         # h_plan = hidden_state_plan.reshape(-1, 1, self.args.entity_embed_dim)
-        out_h, h, obs_loss = self.planner(inputs, hidden_state_plan, t, task, 
+        out_h, h, obs_loss = self.planner(inputs, hidden_state_plan, t, task,
                                           next_inputs=next_inputs, actions=actions, loss_out=loss_out)
         return out_h, h, obs_loss
 
@@ -107,8 +148,8 @@ class MODELNPAgent(nn.Module):
         logits = self.discr.compute_logits(inputs, inputs_pos)
         return logits
 
-    def forward(self, inputs, hidden_state_plan, hidden_state_dec, hidden_state_dis, t, task, skill, 
-                mask=False, actions=None, local_obs=None):
+    def forward(self, inputs, hidden_state_plan, hidden_state_dec, hidden_state_dis, t, task, skill,
+                mask=False, actions=None, local_obs=None, test_mode=None):
         if t % self.c == 0:
             out_h, h_plan, _ = self.forward_planner(inputs, hidden_state_plan, t, task)
             out_h = self.forward_planner_feedforward(out_h)
@@ -118,9 +159,87 @@ class MODELNPAgent(nn.Module):
         # out_h, h_plan = self.forward_global_hidden(inputs, task, hidden_state_plan, actions)
         # out_h = out_h.reshape(-1, 1, self.args.entity_embed_dim)
         # out_h = th.cat(out_h, dim=2)
+
+        if not test_mode and self.adaptation:
+            own_d, enemy_d, ally_d = self.last_out_h[0].shape[1], self.last_out_h[1].shape[1], \
+                self.last_out_h[2].shape[1]
+            high_hidden = th.cat(self.last_out_h, dim=1)
+            noise = 2 * th.rand_like(high_hidden) - 1
+            high_hidden += noise
+            own_hidden, enemy_hidden, ally_hidden = high_hidden[:, :own_d], \
+                high_hidden[:, own_d: own_d+enemy_d], high_hidden[:, -ally_d:]
+            self.last_out_h = [own_hidden, enemy_hidden, ally_hidden]
+
         act, h_dec, _ = self.decoder(self.last_out_h, inputs, discr_h, hidden_state_dec, task, mask, actions)
         # pre_state = th.cat([pre_own.unsqueeze(1), pre_enemy, pre_ally], dim=1)
         # act, h_dec = self.decoder(inputs, hidden_state_dec, out_h, task)
+
+        if self.args.evaluate:
+            if t == 0 and len(self.c_tmp) != 0:
+                self.coordination.append(th.stack(self.c_tmp, dim=0))
+                self.specific.append(th.stack(self.s_tmp, dim=0))
+                self.max_len = max(self.max_len, len(self.c_tmp))
+                self.c_tmp, self.s_tmp = [], []
+
+            if task != self.tSNE_data.get_last_task():
+                print(f'Task: {self.tSNE_data.get_last_task()} done!')
+                self.task_count += 1
+                if len(self.coordination) != 0:
+                    self.tSNE_data.write_data(self.coordination,
+                                              self.specific,
+                                              self.max_len)
+                self.tSNE_data.write_task(task)
+                self.coordination, self.specific = [], []
+                self.c_tmp, self.s_tmp = [], []
+                self.max_len = 0
+
+            out_h = th.cat(self.last_out_h, dim=1)
+            self.c_tmp.append(out_h.cpu())
+            self.s_tmp.append(discr_h.cpu())
+            # self.coordination.append(out_h.cpu())
+            # self.specific.append(discr_h.cpu())
+            # print(out_h.cpu().shape)
+            # print(discr_h.cpu().shape)
+
+            if self.task_count == 8 and not self.saved:
+                coordination, specific, max_len = self.tSNE_data.get_data()
+                # data = {'coordination': coordination,
+                #         'specific': specific,
+                #         }
+                with h5py.File('tSNE_coordination_easy.h5', 'w') as h5file:
+                    for name, value in coordination.items():
+                        data = []
+                        # print(name)
+                        # value's item shape: (t_len, n_agent, n_entity, n_embd)
+                        dummy = th.zeros_like(value[0][0]).unsqueeze(0)   # 1, n_agent, n_entity, n_embd
+                        dummy = dummy.repeat(max_len[name], *th.ones_like(th.tensor(dummy.shape[1:])))
+                        for i in range(len(value)):
+                            i_len = value[i].shape[0]
+                            tmp = th.cat([value[i], dummy[i_len:]], dim=0)
+                            data.append(tmp)
+                        data = th.stack(data, dim=0)
+                        # print(value.shape)
+                        h5file.create_dataset(name, data=data)
+                with h5py.File('tSNE_specific_easy.h5', 'w') as h5file:
+                    # print(name)
+                    for name, value in specific.items():
+                        data = []
+                        dummy = th.zeros_like(value[0][0]).unsqueeze(0)   # 1, n_agent, 1, n_embd
+                        dummy = dummy.repeat(max_len[name], *th.ones_like(th.tensor(dummy.shape[1:])))
+                        for i in range(len(value)):
+                            i_len = value[i].shape[0]
+                            tmp = th.cat([value[i], dummy[i_len:]], dim=0)
+                            data.append(tmp)
+                        data = th.stack(data, dim=0)
+                        # print(value.shape)
+                        h5file.create_dataset(name, data=data)
+                print(50 * '=')
+                print('Representation has been saved!')
+                print(50 * '=')
+
+                self.saved = True
+                # print('=' * 50)
+
         return act, self.last_h_plan, h_dec, h_dis, skill
 
 
@@ -785,7 +904,7 @@ class PlannerModel(nn.Module):
 
         return [own_out, enemy_out, ally_out]
 
-    def forward(self, inputs, hidden_state, t, task, 
+    def forward(self, inputs, hidden_state, t, task,
                 test=True, next_inputs=None, actions=None, loss_out=False):
         hidden_state = hidden_state.reshape(-1, 1, self.entity_embed_dim)
         # if t == 0:
@@ -921,7 +1040,7 @@ class PlannerModel(nn.Module):
             #
             # enemy_feats = enemy_feats.permute(1, 0, 2)
             # ally_feats = ally_feats.permute(1, 0, 2)
-            out_loss = self.rec_module([own_out, enemy_out, ally_out], next_inputs, task, 
+            out_loss = self.rec_module([own_out, enemy_out, ally_out], next_inputs, task,
                                        t=t, actions=actions)
             out_loss += commit_loss
 
@@ -1055,22 +1174,22 @@ class Discriminator(nn.Module):
         self.W = nn.Parameter(th.rand(self.entity_embed_dim, self.entity_embed_dim))
 
         if args.ssl_type == 'moco':
-            self.act_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128), 
+            self.act_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128),
                                           nn.ReLU(inplace=True),
                                           nn.Linear(128, self.entity_embed_dim),
                                           nn.LayerNorm(self.entity_embed_dim), nn.Tanh())
-            self.ssl_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128), 
-                                          #   nn.BatchNorm1d(128), 
-                                          nn.ReLU(inplace=True), 
-                                          nn.Linear(128, self.entity_embed_dim))
-        elif args.ssl_type == 'byol':
-            self.act_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128), 
-                                          nn.BatchNorm1d(128), 
+            self.ssl_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128),
+                                          #   nn.BatchNorm1d(128),
                                           nn.ReLU(inplace=True),
                                           nn.Linear(128, self.entity_embed_dim))
-            self.ssl_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128), 
-                                          nn.BatchNorm1d(128), 
-                                          nn.ReLU(inplace=True), 
+        elif args.ssl_type == 'byol':
+            self.act_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128),
+                                          nn.BatchNorm1d(128),
+                                          nn.ReLU(inplace=True),
+                                          nn.Linear(128, self.entity_embed_dim))
+            self.ssl_proj = nn.Sequential(nn.Linear(self.entity_embed_dim, 128),
+                                          nn.BatchNorm1d(128),
+                                          nn.ReLU(inplace=True),
                                           nn.Linear(128, self.entity_embed_dim))
 
     def forward(self, inputs, t, task, hidden_state):

@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 
 # This multi-agent controller shares parameters between agents
-class MODELSMAC:
+class HISSDSMAC:
     def __init__(self, train_tasks, task2scheme, task2args, main_args):
         # set some task-specific attributes
         self.train_tasks = train_tasks

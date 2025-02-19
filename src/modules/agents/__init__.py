@@ -2,7 +2,7 @@ REGISTRY = {}
 
 # normal agents
 from .rnn_agent import RNNAgent
-from .multi_task.model_agent import MODELAgent
+from .multi_task.hissd_agent import HISSDAgent
 
 REGISTRY["rnn"] = RNNAgent
-REGISTRY["mt_model"] = MODELAgent
+REGISTRY["mt_hissd"] = HISSDAgent
