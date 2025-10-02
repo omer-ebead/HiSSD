@@ -1,0 +1,1 @@
+python3 src/main.py --mto --config=hissd --env-config=sc2_offline --task-config=marine-hard-medium --seed=1

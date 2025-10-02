@@ -1,0 +1,33 @@
+apiVersion: 0.2.0
+builder:
+  buildArgs:
+    USE_CUDA: 'true'
+  context: .
+  dockerfile: ./Dockerfile
+  image: HiSSD
+kind: AIchorManifest
+spec:
+  command: ./run.sh
+  image: HiSSD
+  operator: jobset
+  debug:
+    vscode:
+      enabled: false # required#
+      path: "/aichor/code" # Optional, defaults to "code". Refer the absolute path of the binary if not findable in $PATH
+      provider: "github" # Optional, vscode tunnel provider. Options are "github" or "microsoft", defaults to "github"
+  # debug: #on cursor#
+  #   vscode:
+  #     enabled: true # required
+  #     path: "/aichor/cursor"
+  #     provider: "github"#
+  types:
+    worker:
+      count: 1
+      resources:
+        accelerators:
+          gpu:
+            count: 1
+            product: NVIDIA-A100-SXM4-80GB # Tesla-V100-SXM3-32GB
+            type: gpu
+        cpus: 24
+        ramRatio: 8
