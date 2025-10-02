@@ -4,11 +4,11 @@ builder:
     USE_CUDA: 'true'
   context: .
   dockerfile: ./Dockerfile
-  image: HiSSD
+  image: genrl-sable-offline
 kind: AIchorManifest
 spec:
   command: ./run.sh
-  image: HiSSD
+  image: genrl-sable-offline
   operator: jobset
   debug:
     vscode:
